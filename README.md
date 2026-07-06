@@ -81,7 +81,10 @@ methodology after seeing results.
       limitations; StockTwits is the sole data source going forward
 - [x] Ingest price/fundamental data (yfinance) — daily OHLCV + sector/industry/market-cap
       snapshot for the fixed ticker list plus the QQQ benchmark
-- [ ] Timestamp alignment — ensure sentiment timestamps strictly precede return timestamps (no look-ahead)
+- [x] Timestamp alignment — `timestamp_alignment.py` maps a message timestamp to the
+      trading day whose return it may predict (strictly before that day's 4pm ET
+      close, else rolls to the next trading day), using the `prices` table's QQQ
+      history as the real NYSE trading calendar (no look-ahead)
 - [ ] Deduplicate republished/syndicated stories
 - [ ] Store in structured DB (SQLite to start, Postgres optional)
 

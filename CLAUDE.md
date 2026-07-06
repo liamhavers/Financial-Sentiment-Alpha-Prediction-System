@@ -46,6 +46,7 @@ ingestion/
 ├── db.py                 # Postgres connection + shared schema
 ├── stocktwits_ingest.py  # pulls StockTwits streams/symbol endpoint
 ├── price_ingest.py       # pulls daily OHLCV + fundamentals via yfinance
+├── timestamp_alignment.py # maps a message timestamp to its aligned trading day
 ├── run_all.py            # runs ingestion sources against the DB
 ├── requirements.txt
 ├── .env.example          # copy to .env and fill in real values (never commit .env)
@@ -80,6 +81,20 @@ phase0_proposal.md        # full thesis/scoping proposal (Phase 0 deliverable)
 **Environment**: managed via `.env` (loaded by `python-dotenv` in `config.py`). Requires
 Postgres running locally (or via Docker).
 
+**Timestamp alignment** (`timestamp_alignment.py`): the no-look-ahead enforcement
+mechanism referenced throughout this file. `load_trading_days(conn)` reads the sorted
+list of dates the benchmark ticker (QQQ) has a `prices` row for — this is a real NYSE
+trading calendar "for free" (weekends and holidays like July 4th are simply absent from
+QQQ's price history), so there's no separate market-calendar dependency.
+`align_to_trading_day(timestamp_utc, trading_days)` then maps any tz-aware UTC
+timestamp to the earliest trading day whose 4pm ET close strictly follows it — a
+message posted before that day's close aligns to that day; at/after close, or on a
+non-trading day, it rolls forward to the next trading day. Returns `None` if the
+timestamp is beyond the last currently-ingested trading day (nothing to align to yet).
+Any Phase 2/3 code building a daily sentiment score MUST route timestamps through this
+function rather than reimplementing the close-time logic — it's the single source of
+truth for the look-ahead constraint.
+
 ## Setup Commands
 
 ```bash
@@ -98,10 +113,10 @@ python ingestion/run_all.py
   is not currently accepting new registrations, so this public-endpoint approach is the
   practical path for now, not a real API key.
 - **Look-ahead bias**: `stocktwits_ingest.py` stores timestamps as-is; it does NOT filter
-  by market close. Any code that computes a daily sentiment score MUST filter to only
-  use messages timestamped strictly before that trading day's market close.
-  Getting this wrong invalidates the entire signal validation in Phase 3 — treat it as
-  a hard constraint, not a nice-to-have.
+  by market close. Any code that computes a daily sentiment score MUST run timestamps
+  through `timestamp_alignment.py::align_to_trading_day` rather than reimplementing the
+  close-time logic. Getting this wrong invalidates the entire signal validation in
+  Phase 3 — treat it as a hard constraint, not a nice-to-have.
 - **`AI`/`MU` ticker ambiguity**: still relevant for StockTwits (and for Phase 2 NLP
   generally) since `AI` is also a common English word — this was previously handled in
   `reddit_ingest.py`'s filtering (now removed); StockTwits data is pre-tagged by ticker
@@ -134,7 +149,8 @@ python ingestion/run_all.py
 ## Roadmap (see README.md for full detail)
 
 - **Phase 1 (in progress)**: StockTwits done, Reddit removed (see Fixed Decisions),
-  price/fundamentals ingestion for the ticker universe + QQQ done via `price_ingest.py`
+  price/fundamentals ingestion for the ticker universe + QQQ done via `price_ingest.py`,
+  timestamp alignment done via `timestamp_alignment.py`
 - **Phase 2**: NLP sentiment extraction — Loughran-McDonald dictionary baseline →
   TF-IDF/logistic regression → FinBERT, compared against StockTwits' own sentiment label
 - **Phase 3**: signal validation — IC/rank-IC across t+1 and t+5, factor neutralization,
