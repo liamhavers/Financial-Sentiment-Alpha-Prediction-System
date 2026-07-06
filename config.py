@@ -8,6 +8,11 @@ load_dotenv()  # loads variables from a .env file in the working directory, if p
 
 TICKERS = ["AAPL", "NVDA", "GOOG", "AMZN", "MU", "PLTR", "RDDT", "AI", "TSLA", "META", "MSFT"]
 
+# Benchmark used for the excess-return label (see CLAUDE.md Fixed Decisions).
+# Not part of the locked ticker universe — priced separately for label
+# construction, not analyzed as a signal target itself.
+BENCHMARK_TICKER = "QQQ"
+
 # --- Postgres connection (env-driven; see .env.example) ---
 PG_HOST = os.environ.get("PGHOST", "localhost")
 PG_PORT = os.environ.get("PGPORT", "5432")

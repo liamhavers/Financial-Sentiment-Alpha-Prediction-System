@@ -59,6 +59,33 @@ def init_db(conn) -> None:
         cur.execute(
             "CREATE INDEX IF NOT EXISTS idx_source ON messages (source)"
         )
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS prices (
+                ticker          TEXT NOT NULL,
+                date            DATE NOT NULL,
+                open            NUMERIC,
+                high            NUMERIC,
+                low             NUMERIC,
+                close           NUMERIC,
+                adj_close       NUMERIC,
+                volume          BIGINT,
+                ingested_at_utc TIMESTAMPTZ NOT NULL,
+                PRIMARY KEY (ticker, date)
+            )
+        """)
+
+        # Point-in-time snapshot, not a time series — one row per ticker,
+        # overwritten on each ingestion run (see upsert_fundamentals).
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS fundamentals (
+                ticker          TEXT PRIMARY KEY,
+                sector          TEXT,
+                industry        TEXT,
+                market_cap      BIGINT,
+                updated_at_utc  TIMESTAMPTZ NOT NULL
+            )
+        """)
     conn.commit()
     log.info("Schema ready.")
 
@@ -91,15 +118,68 @@ def store_messages(conn, rows: Iterable[tuple]) -> int:
         return 0
 
     with conn.cursor() as cur:
-        psycopg2.extras.execute_values(
+        # fetch=True + RETURNING: execute_values pages large inserts (default
+        # page_size=100), and cur.rowcount only reflects the last page, not
+        # the cumulative total. fetch=True concatenates each page's RETURNING
+        # rows instead, giving an accurate count.
+        inserted_rows = psycopg2.extras.execute_values(
             cur,
             """INSERT INTO messages
                (source, message_id, ticker, created_at_utc, body, author,
                 sentiment_label, score, extra, ingested_at_utc)
                VALUES %s
-               ON CONFLICT (source, message_id) DO NOTHING""",
+               ON CONFLICT (source, message_id) DO NOTHING
+               RETURNING 1""",
             rows,
+            fetch=True,
         )
-        inserted = cur.rowcount
+        inserted = len(inserted_rows)
     conn.commit()
     return inserted
+
+
+def store_prices(conn, rows: Iterable[tuple]) -> int:
+    """
+    rows: iterable of tuples matching column order:
+    (ticker, date, open, high, low, close, adj_close, volume, ingested_at_utc)
+    """
+    rows = list(rows)
+    if not rows:
+        return 0
+
+    with conn.cursor() as cur:
+        inserted_rows = psycopg2.extras.execute_values(
+            cur,
+            """INSERT INTO prices
+               (ticker, date, open, high, low, close, adj_close, volume, ingested_at_utc)
+               VALUES %s
+               ON CONFLICT (ticker, date) DO NOTHING
+               RETURNING 1""",
+            rows,
+            fetch=True,
+        )
+        inserted = len(inserted_rows)
+    conn.commit()
+    return inserted
+
+
+def upsert_fundamentals(conn, row: tuple) -> None:
+    """
+    row: (ticker, sector, industry, market_cap, updated_at_utc)
+
+    Fundamentals are a current snapshot per ticker rather than a time
+    series, so this overwrites the prior snapshot instead of appending.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO fundamentals
+               (ticker, sector, industry, market_cap, updated_at_utc)
+               VALUES (%s, %s, %s, %s, %s)
+               ON CONFLICT (ticker) DO UPDATE SET
+                   sector = EXCLUDED.sector,
+                   industry = EXCLUDED.industry,
+                   market_cap = EXCLUDED.market_cap,
+                   updated_at_utc = EXCLUDED.updated_at_utc""",
+            row,
+        )
+    conn.commit()

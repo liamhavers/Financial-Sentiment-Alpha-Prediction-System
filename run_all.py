@@ -3,6 +3,7 @@
 import logging
 
 import stocktwits_ingest
+import price_ingest
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -11,6 +12,9 @@ log = logging.getLogger(__name__)
 def main():
     log.info("=== StockTwits ingestion ===")
     stocktwits_ingest.run()
+
+    log.info("=== Price/fundamentals ingestion ===")
+    price_ingest.run()
 
     log.info("=== Done ===")
 

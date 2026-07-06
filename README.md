@@ -79,7 +79,8 @@ methodology after seeing results.
 - [x] Ingest StockTwits data (ticker-tagged posts + built-in bullish/bearish user label) for the fixed ticker list
 - [x] ~~Reddit ingestion~~ — implemented, then removed due to recent Reddit API access
       limitations; StockTwits is the sole data source going forward
-- [ ] Ingest price/fundamental data (yfinance / Alpha Vantage / Polygon.io)
+- [x] Ingest price/fundamental data (yfinance) — daily OHLCV + sector/industry/market-cap
+      snapshot for the fixed ticker list plus the QQQ benchmark
 - [ ] Timestamp alignment — ensure sentiment timestamps strictly precede return timestamps (no look-ahead)
 - [ ] Deduplicate republished/syndicated stories
 - [ ] Store in structured DB (SQLite to start, Postgres optional)

@@ -42,9 +42,10 @@ up-to-date status — update it as phases complete.
 
 ```
 ingestion/
-├── config.py            # tickers, env-driven DB settings
+├── config.py            # tickers, benchmark ticker, env-driven DB settings
 ├── db.py                 # Postgres connection + shared schema
 ├── stocktwits_ingest.py  # pulls StockTwits streams/symbol endpoint
+├── price_ingest.py       # pulls daily OHLCV + fundamentals via yfinance
 ├── run_all.py            # runs ingestion sources against the DB
 ├── requirements.txt
 ├── .env.example          # copy to .env and fill in real values (never commit .env)
@@ -52,19 +53,29 @@ README.md                 # project plan, phase checklist, tech stack
 phase0_proposal.md        # full thesis/scoping proposal (Phase 0 deliverable)
 ```
 
-**Storage**: Postgres, single `messages` table (schema kept source-generic so another
-source could be added later without a migration).
-Schema (see `db.py::init_db`):
-- Primary key is `(source, message_id)` — natural key from each platform, not a
-  surrogate key. This makes re-running ingestion idempotent (`ON CONFLICT DO NOTHING`).
-- `source` is `'stocktwits'` (only active source; `'reddit'` rows would exist only if
-  the removed Reddit ingestion had ever run against this DB — see Fixed Decisions above,
-  it never did).
-- `sentiment_label` is populated from StockTwits' user-tagged bullish/bearish label —
-  intended to be a free baseline to sanity-check Phase 2's own NLP-derived sentiment
-  scores against.
-- `extra` is JSONB for source-specific fields (StockTwits: user_id) that don't need
-  dedicated columns yet.
+**Storage**: Postgres, three tables (see `db.py::init_db`):
+- `messages` — single table for text/sentiment data sources, distinguished by a
+  `source` column (schema kept source-generic so another source could be added later
+  without a migration).
+  - Primary key is `(source, message_id)` — natural key from each platform, not a
+    surrogate key. This makes re-running ingestion idempotent (`ON CONFLICT DO NOTHING`).
+  - `source` is `'stocktwits'` (only active source; `'reddit'` rows would exist only if
+    the removed Reddit ingestion had ever run against this DB — see Fixed Decisions
+    above, it never did).
+  - `sentiment_label` is populated from StockTwits' user-tagged bullish/bearish label —
+    intended to be a free baseline to sanity-check Phase 2's own NLP-derived sentiment
+    scores against.
+  - `extra` is JSONB for source-specific fields (StockTwits: user_id) that don't need
+    dedicated columns yet.
+- `prices` — daily OHLCV bars, `PRIMARY KEY (ticker, date)`, one row per ticker/day,
+  idempotent via `ON CONFLICT DO NOTHING`. Covers the fixed ticker universe plus
+  `config.BENCHMARK_TICKER` (QQQ), needed for the excess-return label. RDDT rows
+  naturally start at its March 2024 IPO — yfinance just returns nothing earlier.
+- `fundamentals` — one row per ticker (`PRIMARY KEY ticker`), a point-in-time
+  snapshot (sector/industry/market cap), not a time series — each ingestion run
+  overwrites the previous snapshot via `ON CONFLICT ... DO UPDATE` (`db.py::upsert_fundamentals`).
+  Expect `NULL` sector/industry/market_cap for ETFs like QQQ — yfinance's `.info`
+  doesn't populate those fields for non-equities, this is not a bug.
 
 **Environment**: managed via `.env` (loaded by `python-dotenv` in `config.py`). Requires
 Postgres running locally (or via Docker).
@@ -98,15 +109,23 @@ python ingestion/run_all.py
 - **Rate limits**: StockTwits ingestion sleeps between requests (20s) to stay under
   historical unauthenticated rate limits. Don't remove this without a reason — the
   script currently gets 403/429s if it moves too fast.
+- **yfinance `.info` reliability**: `price_ingest.py`'s fundamentals fetch is
+  best-effort — Yahoo's `.info` scrape is occasionally throttled or incomplete for a
+  given ticker. `fetch_fundamentals` catches exceptions and logs a warning rather than
+  failing the whole run; a `None` sector/industry/market_cap for a real equity may just
+  mean the scrape came back empty that run, not a code bug.
 
 ## Coding Conventions
 
 - Config (tickers, credentials) lives in `config.py` — don't hardcode tickers or
   credentials in individual scripts.
-- All new data sources should write into the shared `messages` table via `db.py`'s
-  `store_messages`, using the same `(source, message_id, ticker, created_at_utc, body,
-  author, sentiment_label, score, extra, ingested_at_utc)` row shape, rather than
-  creating source-specific tables.
+- New *text/sentiment* data sources should write into the shared `messages` table via
+  `db.py`'s `store_messages`, using the same `(source, message_id, ticker,
+  created_at_utc, body, author, sentiment_label, score, extra, ingested_at_utc)` row
+  shape, rather than creating source-specific tables. Structurally different data
+  (e.g. numeric time series like OHLCV) gets its own table instead — see `prices` /
+  `fundamentals` — forcing it into `messages`' text-message shape would be worse than
+  a second table.
 - Prefer explicit, named functions per ingestion step (fetch → filter → to_rows →
   store) over monolithic scripts, matching the existing structure in
   `stocktwits_ingest.py`.
@@ -114,8 +133,8 @@ python ingestion/run_all.py
 
 ## Roadmap (see README.md for full detail)
 
-- **Phase 1 (in progress)**: finish data ingestion (StockTwits done, Reddit removed —
-  see Fixed Decisions; price data for tickers + QQQ still needed)
+- **Phase 1 (in progress)**: StockTwits done, Reddit removed (see Fixed Decisions),
+  price/fundamentals ingestion for the ticker universe + QQQ done via `price_ingest.py`
 - **Phase 2**: NLP sentiment extraction — Loughran-McDonald dictionary baseline →
   TF-IDF/logistic regression → FinBERT, compared against StockTwits' own sentiment label
 - **Phase 3**: signal validation — IC/rank-IC across t+1 and t+5, factor neutralization,
