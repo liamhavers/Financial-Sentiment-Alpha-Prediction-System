@@ -4,3 +4,4 @@ python-dotenv
 yfinance
 pysentiment2
 nltk
+scikit-learn

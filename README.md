@@ -101,7 +101,15 @@ methodology after seeing results.
       posts (1,048/1,535) and shows weak agreement with the crowd label —
       an expected baseline weakness (LM is tuned for formal filing
       language), not a bug, and the motivation for the next two methods.
-- [ ] Classical ML: TF-IDF + logistic regression / SVM
+- [x] Classical ML: TF-IDF + logistic regression — `sentiment_tfidf.py` trains on
+      StockTwits' own bullish/bearish tag as ground truth (616 of 1,535 deduplicated
+      messages are labeled, ~4:1 bullish:bearish). Held-out evaluation (train=492,
+      test=124): 78% accuracy, 0.85 F1 on bullish / 0.57 F1 on bearish (minority class
+      is harder, as expected with the imbalance). Clearly beats the LM baseline on the
+      same test set (16% accuracy — mostly because LM defaults to neutral). Note:
+      unlike LM, this is a binary classifier (StockTwits never tags "Neutral"), so it
+      forces every message into bullish/bearish — a real behavioral difference between
+      the two methods, not just an accuracy gap.
 - [ ] Transformer: FinBERT for sentence/document-level sentiment
 - [ ] Aggregate document-level scores into daily/entity-level sentiment signal
 - [ ] Compare model performance (F1, latency) against baseline

@@ -22,9 +22,10 @@ limitations) matters more than model performance or code sophistication.
 ## Current Status
 
 Phase 0 (scoping) and Phase 1 (data ingestion) are done. Phase 2 (NLP sentiment
-extraction) is in progress: the Loughran-McDonald dictionary baseline is done
-(`sentiment_lm.py`); TF-IDF/logreg and FinBERT are not yet started. See README.md's
-phase checklist for the authoritative up-to-date status — update it as phases complete.
+extraction) is in progress: the Loughran-McDonald dictionary baseline
+(`sentiment_lm.py`) and TF-IDF/logistic regression (`sentiment_tfidf.py`) are done;
+FinBERT is not yet started. See README.md's phase checklist for the authoritative
+up-to-date status — update it as phases complete.
 
 ## Fixed Decisions (do not change without discussion)
 
@@ -50,6 +51,7 @@ ingestion/
 ├── timestamp_alignment.py # maps a message timestamp to its aligned trading day
 ├── deduplicate.py        # collapses same-account/body/day reposts before scoring
 ├── sentiment_lm.py       # Phase 2 baseline: Loughran-McDonald dictionary scoring
+├── sentiment_tfidf.py    # Phase 2: TF-IDF + logistic regression, trained on StockTwits' own label
 ├── run_all.py            # runs ingestion sources against the DB
 ├── requirements.txt
 ├── .env.example          # copy to .env and fill in real values (never commit .env)
@@ -135,6 +137,25 @@ informal phrasing (e.g. "beat estimates") often doesn't register while formal wo
 motivation for the next two Phase 2 methods (TF-IDF/logreg, FinBERT), not something to
 tune away in the dictionary approach itself.
 
+**TF-IDF/logistic regression sentiment scoring** (`sentiment_tfidf.py`): Phase 2's
+second method, a supervised classifier trained on StockTwits' own bullish/bearish tag
+as ground truth (`messages.sentiment_label`) — the only labeled data available at this
+stage. Only 616 of 1,535 deduplicated messages carry a label, and it's imbalanced
+(~4:1 bullish:bearish); `LogisticRegression(class_weight="balanced")` compensates for
+that. Because StockTwits never tags "Neutral", this model is a **binary** classifier —
+every message is forced into bullish or bearish, unlike LM which can return neutral.
+That's a real behavioral difference to keep in mind when comparing `sentiment_scores`
+across methods, not just an accuracy difference.
+Held-out evaluation (stratified 80/20 split, train=492/test=124 — small, so treat
+metrics as indicative not precise): 78% accuracy, 0.85 F1 bullish / 0.57 F1 bearish
+(minority class is harder, as expected). The LM baseline gets only 16% accuracy on the
+identical test split, mostly because it defaults to neutral (94/124 messages) rather
+than committing to bullish/bearish — a fair like-for-like comparison since ground
+truth is always one of the two classes.
+Note on validation: this is text classification (message → label), not forward-return
+prediction, so CLAUDE.md's "walk-forward CV only" constraint (which applies to Phase 4)
+does not apply here — a random stratified split carries no temporal look-ahead risk.
+
 ## Setup Commands
 
 ```bash
@@ -193,7 +214,8 @@ python ingestion/run_all.py
   timestamp alignment done via `timestamp_alignment.py`, deduplication done via
   `deduplicate.py`, storage in Postgres done from the start.
 - **Phase 2 (in progress)**: NLP sentiment extraction — Loughran-McDonald dictionary
-  baseline done (`sentiment_lm.py`) → TF-IDF/logistic regression (not started) →
+  baseline done (`sentiment_lm.py`) → TF-IDF/logistic regression done
+  (`sentiment_tfidf.py`, 78% held-out accuracy vs. LM's 16% on the same test set) →
   FinBERT (not started), compared against StockTwits' own sentiment label
 - **Phase 3**: signal validation — IC/rank-IC across t+1 and t+5, factor neutralization,
   explicit treatment of multiple-testing risk
