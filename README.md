@@ -7,13 +7,37 @@ Built as a portfolio project for a transition into quantitative research/trading
 
 ## Project Thesis
 
-> Sentiment extracted from [news / earnings call transcripts / SEC filings / social media]
-> about [equity universe] contains information not yet reflected in price, and this signal
-> decays over [target horizon].
+> Retail sentiment expressed on StockTwits about a fixed universe of large-cap and
+> high-retail-interest tech stocks contains information not yet reflected in price, and
+> this signal — if it exists — decays within 1-5 trading days.
 
-This is a placeholder — fill in your specific hypothesis here once Phase 0 is complete.
 A clear, falsifiable thesis is the foundation of the whole project; everything downstream
 exists to test it.
+
+## Phase 0 Decisions (locked)
+
+These decisions are fixed before any data is pulled, to avoid biasing the universe or
+methodology after seeing results.
+
+- **Sector**: Technology
+- **Universe**: ~10-15 fixed tickers, mixing mega-cap tech (e.g. AAPL, MSFT, NVDA, GOOGL,
+  AMZN, META, TSLA) with higher-retail-chatter mid-caps (e.g. PLTR, SOFI, AI). Exact list
+  TBD — write it here once finalized and do not change it after seeing results.
+- **Data source**: StockTwits (Phase 1). Reddit is a stretch goal for later, once the
+  pipeline works end-to-end.
+- **Horizons tested**: next-day (t+1) and t+5 return, to support a signal decay analysis
+  in Phase 3.
+- **Label**: return relative to a tech sector ETF (QQQ), not raw return — a more
+  defensible measure of "alpha" than absolute price movement.
+- **Known assumptions/limitations accepted**:
+  - Survivorship: confirm all tickers existed for the full backtest period.
+  - Look-ahead: a post only counts toward a day's sentiment score if timestamped before
+    that day's market close.
+  - Volume floor: below a minimum post-count threshold per ticker/day, treat sentiment
+    as missing rather than a noisy signal.
+  - Social sentiment is noisier than news (sarcasm, hype, possible bot activity) —
+    validated in Phase 2 against StockTwits' own user-tagged bullish/bearish label as a
+    sanity check.
 
 ## Goals
 
@@ -42,13 +66,15 @@ exists to test it.
 ## Project Plan
 
 ### Phase 0 — Scope & Thesis (~1 week)
-- [ ] Define universe (single sector vs. broad market)
-- [ ] Define prediction horizon (intraday / 1-day / 1-week)
-- [ ] Choose primary data source(s)
-- [ ] Write one-page thesis statement (see above)
+- [x] Define universe — tech sector, ~10-15 fixed tickers (see Phase 0 Decisions above)
+- [x] Define prediction horizon — t+1 and t+5, vs. QQQ
+- [x] Choose primary data source — StockTwits (Reddit as stretch goal)
+- [ ] Finalize exact ticker list and paste into Phase 0 Decisions
+- [ ] Write one-page thesis proposal doc (expand thesis above into full proposal)
 
 ### Phase 1 — Data Pipeline (~2-3 weeks)
-- [ ] Ingest alternative data: news (NewsAPI / GDELT), filings (SEC EDGAR), and/or social (Reddit / StockTwits)
+- [ ] Ingest StockTwits data (ticker-tagged posts + built-in bullish/bearish user label) for the fixed ticker list
+- [ ] Stretch goal: Reddit ingestion (PRAW/Pushshift) with regex-based ticker extraction, once StockTwits pipeline works end-to-end
 - [ ] Ingest price/fundamental data (yfinance / Alpha Vantage / Polygon.io)
 - [ ] Timestamp alignment — ensure sentiment timestamps strictly precede return timestamps (no look-ahead)
 - [ ] Deduplicate republished/syndicated stories
