@@ -93,7 +93,14 @@ methodology after seeing results.
       SQLite-then-migrate
 
 ### Phase 2 — NLP Sentiment Extraction (~2-3 weeks)
-- [ ] Baseline: Loughran-McDonald finance-specific sentiment dictionary
+- [x] Baseline: Loughran-McDonald finance-specific sentiment dictionary —
+      `sentiment_lm.py` scores every deduplicated message via `pysentiment2`'s
+      bundled LM word lists, storing polarity/subjectivity/label in the new
+      `sentiment_scores` table. Sanity-checked against StockTwits' own
+      bullish/bearish label: LM mostly returns neutral on short informal
+      posts (1,048/1,535) and shows weak agreement with the crowd label —
+      an expected baseline weakness (LM is tuned for formal filing
+      language), not a bug, and the motivation for the next two methods.
 - [ ] Classical ML: TF-IDF + logistic regression / SVM
 - [ ] Transformer: FinBERT for sentence/document-level sentiment
 - [ ] Aggregate document-level scores into daily/entity-level sentiment signal

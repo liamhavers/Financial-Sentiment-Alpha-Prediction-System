@@ -86,6 +86,30 @@ def init_db(conn) -> None:
                 updated_at_utc  TIMESTAMPTZ NOT NULL
             )
         """)
+
+        # Per-message sentiment scores. `method` discriminates which Phase 2
+        # technique produced the row (e.g. 'lm_dict', 'tfidf_logreg',
+        # 'finbert'), so all three can coexist without a schema change —
+        # same discriminator pattern as `messages.source`. `score` is
+        # normalized to roughly [-1, 1] across methods for comparability;
+        # method-specific detail (e.g. LM's raw pos/neg counts and
+        # subjectivity, or FinBERT's class probabilities) goes in `extra`.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS sentiment_scores (
+                method          TEXT NOT NULL,
+                source          TEXT NOT NULL,
+                message_id      TEXT NOT NULL,
+                ticker          TEXT NOT NULL,
+                score           NUMERIC,
+                label           TEXT,
+                extra           JSONB,
+                scored_at_utc   TIMESTAMPTZ NOT NULL,
+                PRIMARY KEY (method, source, message_id)
+            )
+        """)
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sentiment_ticker ON sentiment_scores (ticker, method)"
+        )
     conn.commit()
     log.info("Schema ready.")
 
@@ -161,6 +185,39 @@ def store_prices(conn, rows: Iterable[tuple]) -> int:
         inserted = len(inserted_rows)
     conn.commit()
     return inserted
+
+
+def store_sentiment_scores(conn, rows: Iterable[tuple]) -> int:
+    """
+    rows: iterable of tuples matching column order:
+    (method, source, message_id, ticker, score, label, extra, scored_at_utc)
+
+    ON CONFLICT DO UPDATE rather than DO NOTHING: re-scoring the same
+    message with the same method (e.g. after a dictionary/model tweak)
+    should overwrite the prior score, not silently no-op.
+    """
+    rows = list(rows)
+    if not rows:
+        return 0
+
+    with conn.cursor() as cur:
+        affected_rows = psycopg2.extras.execute_values(
+            cur,
+            """INSERT INTO sentiment_scores
+               (method, source, message_id, ticker, score, label, extra, scored_at_utc)
+               VALUES %s
+               ON CONFLICT (method, source, message_id) DO UPDATE SET
+                   score = EXCLUDED.score,
+                   label = EXCLUDED.label,
+                   extra = EXCLUDED.extra,
+                   scored_at_utc = EXCLUDED.scored_at_utc
+               RETURNING 1""",
+            rows,
+            fetch=True,
+        )
+        affected = len(affected_rows)
+    conn.commit()
+    return affected
 
 
 def upsert_fundamentals(conn, row: tuple) -> None:

@@ -22,8 +22,9 @@ limitations) matters more than model performance or code sophistication.
 ## Current Status
 
 Phase 0 (scoping) and Phase 1 (data ingestion) are done. Phase 2 (NLP sentiment
-extraction) has not yet started. See README.md's phase checklist for the authoritative
-up-to-date status — update it as phases complete.
+extraction) is in progress: the Loughran-McDonald dictionary baseline is done
+(`sentiment_lm.py`); TF-IDF/logreg and FinBERT are not yet started. See README.md's
+phase checklist for the authoritative up-to-date status — update it as phases complete.
 
 ## Fixed Decisions (do not change without discussion)
 
@@ -48,6 +49,7 @@ ingestion/
 ├── price_ingest.py       # pulls daily OHLCV + fundamentals via yfinance
 ├── timestamp_alignment.py # maps a message timestamp to its aligned trading day
 ├── deduplicate.py        # collapses same-account/body/day reposts before scoring
+├── sentiment_lm.py       # Phase 2 baseline: Loughran-McDonald dictionary scoring
 ├── run_all.py            # runs ingestion sources against the DB
 ├── requirements.txt
 ├── .env.example          # copy to .env and fill in real values (never commit .env)
@@ -55,7 +57,7 @@ README.md                 # project plan, phase checklist, tech stack
 phase0_proposal.md        # full thesis/scoping proposal (Phase 0 deliverable)
 ```
 
-**Storage**: Postgres, three tables (see `db.py::init_db`):
+**Storage**: Postgres, four tables (see `db.py::init_db`):
 - `messages` — single table for text/sentiment data sources, distinguished by a
   `source` column (schema kept source-generic so another source could be added later
   without a migration).
@@ -78,6 +80,16 @@ phase0_proposal.md        # full thesis/scoping proposal (Phase 0 deliverable)
   overwrites the previous snapshot via `ON CONFLICT ... DO UPDATE` (`db.py::upsert_fundamentals`).
   Expect `NULL` sector/industry/market_cap for ETFs like QQQ — yfinance's `.info`
   doesn't populate those fields for non-equities, this is not a bug.
+- `sentiment_scores` — one row per (method, message), `PRIMARY KEY (method, source,
+  message_id)`. `method` discriminates which Phase 2 technique produced the row
+  (`'lm_dict'` so far; `'tfidf_logreg'`/`'finbert'` will follow) — same discriminator
+  pattern as `messages.source`, so all three methods coexist without a schema change.
+  `score` is normalized to roughly [-1, 1] for cross-method comparability; `label` is
+  bucketed to `bullish`/`bearish`/`neutral` so it's directly comparable to
+  `messages.sentiment_label`; method-specific detail (LM's raw pos/neg counts and
+  subjectivity, FinBERT's class probabilities, etc.) goes in `extra` JSONB rather than
+  dedicated columns. Upserts via `ON CONFLICT ... DO UPDATE` (not `DO NOTHING`) since
+  re-scoring the same message with the same method should overwrite, not no-op.
 
 **Environment**: managed via `.env` (loaded by `python-dotenv` in `config.py`). Requires
 Postgres running locally (or via Docker).
@@ -109,6 +121,19 @@ real data: 1,562 → 1,535 messages, all 27 removed rows confirmed genuine same-
 reposts. Does not mutate stored data — raw `messages` rows are untouched; Phase 2
 sentiment scoring should fetch through `deduplicated_messages_for_ticker` rather than
 querying `messages` directly.
+
+**LM dictionary sentiment scoring** (`sentiment_lm.py`): Phase 2's baseline method,
+using `pysentiment2`'s bundled Loughran-McDonald word lists (built from formal 10-K/10-Q
+filing language — see https://www3.nd.edu/~mcdonald/Word_Lists.html). Scores each
+deduplicated message independently (no cross-message aggregation yet — that's a later
+Phase 2 step) and writes to `sentiment_scores` under `method='lm_dict'`. Verified against
+real data: mostly returns `neutral` on short informal StockTwits posts (1,048/1,535
+messages) and shows weak agreement with StockTwits' own bullish/bearish label — an
+**expected baseline weakness**, not a bug: LM is tuned for formal filing language, so
+informal phrasing (e.g. "beat estimates") often doesn't register while formal words like
+"risk"/"litigation" score negative regardless of context. This is the documented
+motivation for the next two Phase 2 methods (TF-IDF/logreg, FinBERT), not something to
+tune away in the dictionary approach itself.
 
 ## Setup Commands
 
@@ -167,8 +192,9 @@ python ingestion/run_all.py
   price/fundamentals ingestion for the ticker universe + QQQ done via `price_ingest.py`,
   timestamp alignment done via `timestamp_alignment.py`, deduplication done via
   `deduplicate.py`, storage in Postgres done from the start.
-- **Phase 2**: NLP sentiment extraction — Loughran-McDonald dictionary baseline →
-  TF-IDF/logistic regression → FinBERT, compared against StockTwits' own sentiment label
+- **Phase 2 (in progress)**: NLP sentiment extraction — Loughran-McDonald dictionary
+  baseline done (`sentiment_lm.py`) → TF-IDF/logistic regression (not started) →
+  FinBERT (not started), compared against StockTwits' own sentiment label
 - **Phase 3**: signal validation — IC/rank-IC across t+1 and t+5, factor neutralization,
   explicit treatment of multiple-testing risk
 - **Phase 4**: ML model combining sentiment + traditional factors, walk-forward CV only
