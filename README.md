@@ -20,9 +20,12 @@ These decisions are fixed before any data is pulled, to avoid biasing the univer
 methodology after seeing results.
 
 - **Sector**: Technology
-- **Universe**: ~10-15 fixed tickers, mixing mega-cap tech (e.g. AAPL, MSFT, NVDA, GOOGL,
-  AMZN, META, TSLA) with higher-retail-chatter mid-caps (e.g. PLTR, SOFI, AI). Exact list
-  TBD — write it here once finalized and do not change it after seeing results.
+- **Universe (final, locked)**: `AAPL, NVDA, GOOG, AMZN, MU, PLTR, RDDT, AI, TSLA, META, MSFT`
+  — 11 tickers mixing mega-cap tech (AAPL, NVDA, GOOG, AMZN, META, MSFT, TSLA) with
+  higher-retail-chatter / thinner-coverage names (MU, PLTR, RDDT, AI). This list is now
+  fixed for the duration of the project and will not be revised after seeing results.
+  Note: RDDT IPO'd in March 2024 — backtest period must either start no earlier than
+  that, or RDDT must be excluded from any test window predating its listing.
 - **Data source**: StockTwits (Phase 1). Reddit is a stretch goal for later, once the
   pipeline works end-to-end.
 - **Horizons tested**: next-day (t+1) and t+5 return, to support a signal decay analysis
@@ -69,8 +72,8 @@ methodology after seeing results.
 - [x] Define universe — tech sector, ~10-15 fixed tickers (see Phase 0 Decisions above)
 - [x] Define prediction horizon — t+1 and t+5, vs. QQQ
 - [x] Choose primary data source — StockTwits (Reddit as stretch goal)
-- [ ] Finalize exact ticker list and paste into Phase 0 Decisions
-- [ ] Write one-page thesis proposal doc (expand thesis above into full proposal)
+- [x] Finalize exact ticker list and paste into Phase 0 Decisions
+- [x] Write one-page thesis proposal doc — see [`phase0_proposal.md`](./phase0_proposal.md)
 
 ### Phase 1 — Data Pipeline (~2-3 weeks)
 - [ ] Ingest StockTwits data (ticker-tagged posts + built-in bullish/bearish user label) for the fixed ticker list
