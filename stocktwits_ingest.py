@@ -27,7 +27,7 @@ BASE_URL = "https://api.stocktwits.com/api/2/streams/symbol/{symbol}.json"
 SECONDS_BETWEEN_REQUESTS = 20
 MAX_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 30
-MAX_PAGES_PER_TICKER = 5
+MAX_PAGES_PER_TICKER = 10
 
 HEADERS = {
     "User-Agent": (
