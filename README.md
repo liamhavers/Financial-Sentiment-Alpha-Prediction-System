@@ -85,8 +85,12 @@ methodology after seeing results.
       trading day whose return it may predict (strictly before that day's 4pm ET
       close, else rolls to the next trading day), using the `prices` table's QQQ
       history as the real NYSE trading calendar (no look-ahead)
-- [ ] Deduplicate republished/syndicated stories
-- [ ] Store in structured DB (SQLite to start, Postgres optional)
+- [x] Deduplicate republished/syndicated stories — `deduplicate.py` collapses posts
+      sharing the same (ticker, author, body, aligned trading day), so an account
+      reposting identical text doesn't inflate that day's sentiment; verified against
+      real ingested data (1,562 → 1,535 messages, all genuine same-account reposts)
+- [x] Store in structured DB — Postgres (via Docker), used from the start rather than
+      SQLite-then-migrate
 
 ### Phase 2 — NLP Sentiment Extraction (~2-3 weeks)
 - [ ] Baseline: Loughran-McDonald finance-specific sentiment dictionary

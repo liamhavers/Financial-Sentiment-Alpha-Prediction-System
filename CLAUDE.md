@@ -21,8 +21,8 @@ limitations) matters more than model performance or code sophistication.
 
 ## Current Status
 
-Phase 0 (scoping) and the early part of Phase 1 (data ingestion) are done. Currently
-building out the ingestion layer. See README.md's phase checklist for the authoritative
+Phase 0 (scoping) and Phase 1 (data ingestion) are done. Phase 2 (NLP sentiment
+extraction) has not yet started. See README.md's phase checklist for the authoritative
 up-to-date status — update it as phases complete.
 
 ## Fixed Decisions (do not change without discussion)
@@ -47,6 +47,7 @@ ingestion/
 ├── stocktwits_ingest.py  # pulls StockTwits streams/symbol endpoint
 ├── price_ingest.py       # pulls daily OHLCV + fundamentals via yfinance
 ├── timestamp_alignment.py # maps a message timestamp to its aligned trading day
+├── deduplicate.py        # collapses same-account/body/day reposts before scoring
 ├── run_all.py            # runs ingestion sources against the DB
 ├── requirements.txt
 ├── .env.example          # copy to .env and fill in real values (never commit .env)
@@ -94,6 +95,20 @@ timestamp is beyond the last currently-ingested trading day (nothing to align to
 Any Phase 2/3 code building a daily sentiment score MUST route timestamps through this
 function rather than reimplementing the close-time logic — it's the single source of
 truth for the look-ahead constraint.
+
+**Deduplication** (`deduplicate.py`): investigated directly in the ingested StockTwits
+data — some accounts post the exact same body text more than once on the same aligned
+trading day (e.g. sharing the same article link twice, or a recurring scheduled repost
+that lands on the same trading day across a holiday weekend). Distinct authors
+independently posting a short identical body (e.g. just `"$PLTR"`) are common and are
+NOT duplicates. `deduplicate_messages` collapses rows sharing the same `(ticker,
+author, body, aligned_trading_day)` — note the grouping key is the *aligned* trading
+day from `timestamp_alignment.py`, not the calendar day, so a repost spanning a
+holiday/weekend that resolves to the same trading day still collapses. Verified against
+real data: 1,562 → 1,535 messages, all 27 removed rows confirmed genuine same-account
+reposts. Does not mutate stored data — raw `messages` rows are untouched; Phase 2
+sentiment scoring should fetch through `deduplicated_messages_for_ticker` rather than
+querying `messages` directly.
 
 ## Setup Commands
 
@@ -148,9 +163,10 @@ python ingestion/run_all.py
 
 ## Roadmap (see README.md for full detail)
 
-- **Phase 1 (in progress)**: StockTwits done, Reddit removed (see Fixed Decisions),
+- **Phase 1 (complete)**: StockTwits done, Reddit removed (see Fixed Decisions),
   price/fundamentals ingestion for the ticker universe + QQQ done via `price_ingest.py`,
-  timestamp alignment done via `timestamp_alignment.py`
+  timestamp alignment done via `timestamp_alignment.py`, deduplication done via
+  `deduplicate.py`, storage in Postgres done from the start.
 - **Phase 2**: NLP sentiment extraction — Loughran-McDonald dictionary baseline →
   TF-IDF/logistic regression → FinBERT, compared against StockTwits' own sentiment label
 - **Phase 3**: signal validation — IC/rank-IC across t+1 and t+5, factor neutralization,
