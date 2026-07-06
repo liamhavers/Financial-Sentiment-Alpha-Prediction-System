@@ -5,3 +5,5 @@ yfinance
 pysentiment2
 nltk
 scikit-learn
+torch
+transformers

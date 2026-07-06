@@ -110,9 +110,20 @@ methodology after seeing results.
       unlike LM, this is a binary classifier (StockTwits never tags "Neutral"), so it
       forces every message into bullish/bearish — a real behavioral difference between
       the two methods, not just an accuracy gap.
-- [ ] Transformer: FinBERT for sentence/document-level sentiment
+- [x] Transformer: FinBERT for sentence/document-level sentiment — `sentiment_finbert.py`
+      runs `ProsusAI/finbert` zero-shot (not fine-tuned on our data) over every
+      deduplicated message. Against StockTwits' own label (n=616, no train/test split
+      needed since nothing was fit on this data): 14.1% accuracy, again mostly
+      defaulting to neutral (493/616) — FinBERT is tuned on formal analyst/news text,
+      so short informal social posts trip it up in a similar way to the LM dictionary,
+      just for a different underlying reason.
 - [ ] Aggregate document-level scores into daily/entity-level sentiment signal
-- [ ] Compare model performance (F1, latency) against baseline
+- [x] Compare model performance (F1, latency) against baseline — see the three methods'
+      results above: TF-IDF/logreg (78% accuracy, trained on our labels) clearly beats
+      both zero-shot dictionary/transformer approaches (LM 16%, FinBERT 14%) on
+      StockTwits' own label, which mostly reflects that a model trained on this specific
+      informal-text domain outperforms general-purpose finance-text tools applied
+      out-of-the-box — an honest, if unglamorous, finding worth carrying into Phase 3.
 
 ### Phase 3 — Signal Construction & Statistical Validation (~2 weeks)
 - [ ] Construct forward return labels (raw and market/sector-neutral excess returns)

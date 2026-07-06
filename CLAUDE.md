@@ -22,10 +22,10 @@ limitations) matters more than model performance or code sophistication.
 ## Current Status
 
 Phase 0 (scoping) and Phase 1 (data ingestion) are done. Phase 2 (NLP sentiment
-extraction) is in progress: the Loughran-McDonald dictionary baseline
-(`sentiment_lm.py`) and TF-IDF/logistic regression (`sentiment_tfidf.py`) are done;
-FinBERT is not yet started. See README.md's phase checklist for the authoritative
-up-to-date status — update it as phases complete.
+extraction) is in progress: all three sentiment methods are done (LM dictionary,
+TF-IDF/logreg, FinBERT — see Architecture below); aggregating per-message scores into
+a daily/entity-level signal is the remaining Phase 2 item before Phase 3. See
+README.md's phase checklist for the authoritative up-to-date status.
 
 ## Fixed Decisions (do not change without discussion)
 
@@ -52,6 +52,7 @@ ingestion/
 ├── deduplicate.py        # collapses same-account/body/day reposts before scoring
 ├── sentiment_lm.py       # Phase 2 baseline: Loughran-McDonald dictionary scoring
 ├── sentiment_tfidf.py    # Phase 2: TF-IDF + logistic regression, trained on StockTwits' own label
+├── sentiment_finbert.py  # Phase 2: FinBERT (ProsusAI/finbert), zero-shot
 ├── run_all.py            # runs ingestion sources against the DB
 ├── requirements.txt
 ├── .env.example          # copy to .env and fill in real values (never commit .env)
@@ -156,6 +157,21 @@ Note on validation: this is text classification (message → label), not forward
 prediction, so CLAUDE.md's "walk-forward CV only" constraint (which applies to Phase 4)
 does not apply here — a random stratified split carries no temporal look-ahead risk.
 
+**FinBERT sentiment scoring** (`sentiment_finbert.py`): Phase 2's third method, using
+`ProsusAI/finbert` (BERT fine-tuned on financial news/analyst text for 3-class
+positive/negative/neutral sentiment) via HuggingFace `transformers`. Run **zero-shot** —
+not fine-tuned on our StockTwits data — so there's no train/test split to construct;
+evaluation against StockTwits' own label uses all 616 labeled messages directly, since
+nothing here was fit on them. Result: 14.1% accuracy, again mostly defaulting to neutral
+(493/616) — FinBERT's formal financial-news training doesn't transfer well to short
+informal social posts either, a different root cause than LM's but a similar symptom.
+**Cross-method takeaway**: `sentiment_tfidf.py` (78% accuracy, trained on our own
+labeled data) clearly outperforms both zero-shot/dictionary approaches (LM 16%, FinBERT
+14%) on StockTwits' own label — an honest finding that a small in-domain classifier beat
+general-purpose finance-text tools here, worth carrying into Phase 3 rather than
+papering over. Uses CPU-only PyTorch (no GPU available/needed for this dataset size);
+`torch`/`transformers` added to `requirements.txt`.
+
 ## Setup Commands
 
 ```bash
@@ -214,9 +230,10 @@ python ingestion/run_all.py
   timestamp alignment done via `timestamp_alignment.py`, deduplication done via
   `deduplicate.py`, storage in Postgres done from the start.
 - **Phase 2 (in progress)**: NLP sentiment extraction — Loughran-McDonald dictionary
-  baseline done (`sentiment_lm.py`) → TF-IDF/logistic regression done
-  (`sentiment_tfidf.py`, 78% held-out accuracy vs. LM's 16% on the same test set) →
-  FinBERT (not started), compared against StockTwits' own sentiment label
+  baseline done (`sentiment_lm.py`, 16% accuracy vs. StockTwits' label) → TF-IDF/logistic
+  regression done (`sentiment_tfidf.py`, 78% held-out accuracy — clear winner) →
+  FinBERT done (`sentiment_finbert.py`, 14% accuracy, zero-shot). Remaining: aggregate
+  per-message scores into a daily/entity-level sentiment signal before Phase 3.
 - **Phase 3**: signal validation — IC/rank-IC across t+1 and t+5, factor neutralization,
   explicit treatment of multiple-testing risk
 - **Phase 4**: ML model combining sentiment + traditional factors, walk-forward CV only
