@@ -110,6 +110,30 @@ def init_db(conn) -> None:
         cur.execute(
             "CREATE INDEX IF NOT EXISTS idx_sentiment_ticker ON sentiment_scores (ticker, method)"
         )
+
+        # Daily/entity-level aggregate of sentiment_scores, one row per
+        # (ticker, trading_day, method). mean_score is NULL when
+        # message_count is below config.MIN_DAILY_MESSAGES (the Phase 0
+        # volume floor) — treated as missing signal, not a noisy one, per
+        # CLAUDE.md/README's Phase 0 Decisions.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS daily_sentiment (
+                ticker              TEXT NOT NULL,
+                trading_day         DATE NOT NULL,
+                method              TEXT NOT NULL,
+                mean_score          NUMERIC,
+                message_count       INTEGER NOT NULL,
+                pct_bullish         NUMERIC,
+                pct_bearish         NUMERIC,
+                pct_neutral         NUMERIC,
+                above_volume_floor  BOOLEAN NOT NULL,
+                computed_at_utc     TIMESTAMPTZ NOT NULL,
+                PRIMARY KEY (ticker, trading_day, method)
+            )
+        """)
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_daily_sentiment_method ON daily_sentiment (method, trading_day)"
+        )
     conn.commit()
     log.info("Schema ready.")
 
@@ -211,6 +235,45 @@ def store_sentiment_scores(conn, rows: Iterable[tuple]) -> int:
                    label = EXCLUDED.label,
                    extra = EXCLUDED.extra,
                    scored_at_utc = EXCLUDED.scored_at_utc
+               RETURNING 1""",
+            rows,
+            fetch=True,
+        )
+        affected = len(affected_rows)
+    conn.commit()
+    return affected
+
+
+def store_daily_sentiment(conn, rows: Iterable[tuple]) -> int:
+    """
+    rows: iterable of tuples matching column order:
+    (ticker, trading_day, method, mean_score, message_count, pct_bullish,
+     pct_bearish, pct_neutral, above_volume_floor, computed_at_utc)
+
+    ON CONFLICT DO UPDATE rather than DO NOTHING: re-aggregating (e.g. after
+    new messages are ingested for a day, or a method is re-scored) should
+    overwrite the prior daily row, not silently no-op.
+    """
+    rows = list(rows)
+    if not rows:
+        return 0
+
+    with conn.cursor() as cur:
+        affected_rows = psycopg2.extras.execute_values(
+            cur,
+            """INSERT INTO daily_sentiment
+               (ticker, trading_day, method, mean_score, message_count,
+                pct_bullish, pct_bearish, pct_neutral, above_volume_floor,
+                computed_at_utc)
+               VALUES %s
+               ON CONFLICT (ticker, trading_day, method) DO UPDATE SET
+                   mean_score = EXCLUDED.mean_score,
+                   message_count = EXCLUDED.message_count,
+                   pct_bullish = EXCLUDED.pct_bullish,
+                   pct_bearish = EXCLUDED.pct_bearish,
+                   pct_neutral = EXCLUDED.pct_neutral,
+                   above_volume_floor = EXCLUDED.above_volume_floor,
+                   computed_at_utc = EXCLUDED.computed_at_utc
                RETURNING 1""",
             rows,
             fetch=True,

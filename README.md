@@ -117,7 +117,17 @@ methodology after seeing results.
       defaulting to neutral (493/616) — FinBERT is tuned on formal analyst/news text,
       so short informal social posts trip it up in a similar way to the LM dictionary,
       just for a different underlying reason.
-- [ ] Aggregate document-level scores into daily/entity-level sentiment signal
+- [x] Aggregate document-level scores into daily/entity-level sentiment signal —
+      `sentiment_daily.py` groups each method's `sentiment_scores` rows by
+      (ticker, aligned trading day) into the new `daily_sentiment` table:
+      mean score, message count, and bullish/bearish/neutral mix, computed
+      independently per method (not blended) so Phase 3 can evaluate each
+      method's IC separately. Below `config.MIN_DAILY_MESSAGES` (the Phase 0
+      volume floor), `mean_score` is stored as NULL rather than a noisy
+      average — message_count is still recorded so it's visible *why* a
+      day is missing. Current ingested data spans only 26 ticker-days (a
+      narrow recent window, not a full backtest history yet), none below
+      the floor of 3.
 - [x] Compare model performance (F1, latency) against baseline — see the three methods'
       results above: TF-IDF/logreg (78% accuracy, trained on our labels) clearly beats
       both zero-shot dictionary/transformer approaches (LM 16%, FinBERT 14%) on

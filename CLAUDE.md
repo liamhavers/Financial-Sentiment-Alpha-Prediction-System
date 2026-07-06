@@ -21,10 +21,10 @@ limitations) matters more than model performance or code sophistication.
 
 ## Current Status
 
-Phase 0 (scoping) and Phase 1 (data ingestion) are done. Phase 2 (NLP sentiment
-extraction) is in progress: all three sentiment methods are done (LM dictionary,
-TF-IDF/logreg, FinBERT — see Architecture below); aggregating per-message scores into
-a daily/entity-level signal is the remaining Phase 2 item before Phase 3. See
+Phase 0 (scoping), Phase 1 (data ingestion), and Phase 2 (NLP sentiment extraction)
+are done: all three sentiment methods (LM dictionary, TF-IDF/logreg, FinBERT) plus
+daily/entity-level aggregation (see Architecture below) are implemented and run
+against the full ingested dataset. Phase 3 (signal validation) is next. See
 README.md's phase checklist for the authoritative up-to-date status.
 
 ## Fixed Decisions (do not change without discussion)
@@ -53,6 +53,7 @@ ingestion/
 ├── sentiment_lm.py       # Phase 2 baseline: Loughran-McDonald dictionary scoring
 ├── sentiment_tfidf.py    # Phase 2: TF-IDF + logistic regression, trained on StockTwits' own label
 ├── sentiment_finbert.py  # Phase 2: FinBERT (ProsusAI/finbert), zero-shot
+├── sentiment_daily.py    # Phase 2: aggregates sentiment_scores into daily/entity signal
 ├── run_all.py            # runs ingestion sources against the DB
 ├── requirements.txt
 ├── .env.example          # copy to .env and fill in real values (never commit .env)
@@ -60,7 +61,7 @@ README.md                 # project plan, phase checklist, tech stack
 phase0_proposal.md        # full thesis/scoping proposal (Phase 0 deliverable)
 ```
 
-**Storage**: Postgres, four tables (see `db.py::init_db`):
+**Storage**: Postgres, five tables (see `db.py::init_db`):
 - `messages` — single table for text/sentiment data sources, distinguished by a
   `source` column (schema kept source-generic so another source could be added later
   without a migration).
@@ -93,6 +94,16 @@ phase0_proposal.md        # full thesis/scoping proposal (Phase 0 deliverable)
   subjectivity, FinBERT's class probabilities, etc.) goes in `extra` JSONB rather than
   dedicated columns. Upserts via `ON CONFLICT ... DO UPDATE` (not `DO NOTHING`) since
   re-scoring the same message with the same method should overwrite, not no-op.
+- `daily_sentiment` — one row per (ticker, trading_day, method), `PRIMARY KEY (ticker,
+  trading_day, method)`, built by `sentiment_daily.py` from `sentiment_scores` grouped
+  by aligned trading day (not calendar day — same look-ahead-safe grouping as
+  `deduplicate.py`). Stores `mean_score`, `message_count`, and the bullish/bearish/
+  neutral mix; `mean_score` is `NULL` when `message_count < config.MIN_DAILY_MESSAGES`
+  (the Phase 0 volume floor) — treated as missing signal, not a noisy one —
+  `above_volume_floor` records why. The three methods are aggregated independently
+  (not blended into one score) so Phase 3 can evaluate each method's IC separately.
+  Upserts via `ON CONFLICT ... DO UPDATE` for the same re-scoring-overwrites reason as
+  `sentiment_scores`.
 
 **Environment**: managed via `.env` (loaded by `python-dotenv` in `config.py`). Requires
 Postgres running locally (or via Docker).
@@ -172,6 +183,21 @@ general-purpose finance-text tools here, worth carrying into Phase 3 rather than
 papering over. Uses CPU-only PyTorch (no GPU available/needed for this dataset size);
 `torch`/`transformers` added to `requirements.txt`.
 
+**Daily/entity-level sentiment aggregation** (`sentiment_daily.py`): Phase 2's final
+step, turning the per-message `sentiment_scores` rows (one per method) into a daily
+signal per `(ticker, trading_day, method)` in `daily_sentiment`. Groups by the
+*aligned* trading day from `timestamp_alignment.py`, so the look-ahead guarantee
+established at ingestion/dedup time carries through unchanged. Applies the Phase 0
+volume floor (`config.MIN_DAILY_MESSAGES = 3`): below that count, `mean_score` is
+stored `NULL` rather than an average over too few noisy posts, while `message_count`/
+`above_volume_floor` are still recorded so it's visible *why* a day is missing rather
+than silently absent. Verified against real data: current ingestion covers only 26
+distinct (ticker, trading_day) combinations (a narrow recent window, not yet a full
+backtest-length history — expected at this stage, not a bug), with message counts per
+day ranging 6–147, so none currently fall below the floor; the floor will start
+binding once ingestion has run long enough to accumulate sparser days. This completes
+Phase 2 — Phase 3 (signal validation) is next.
+
 ## Setup Commands
 
 ```bash
@@ -229,11 +255,11 @@ python ingestion/run_all.py
   price/fundamentals ingestion for the ticker universe + QQQ done via `price_ingest.py`,
   timestamp alignment done via `timestamp_alignment.py`, deduplication done via
   `deduplicate.py`, storage in Postgres done from the start.
-- **Phase 2 (in progress)**: NLP sentiment extraction — Loughran-McDonald dictionary
+- **Phase 2 (complete)**: NLP sentiment extraction — Loughran-McDonald dictionary
   baseline done (`sentiment_lm.py`, 16% accuracy vs. StockTwits' label) → TF-IDF/logistic
   regression done (`sentiment_tfidf.py`, 78% held-out accuracy — clear winner) →
-  FinBERT done (`sentiment_finbert.py`, 14% accuracy, zero-shot). Remaining: aggregate
-  per-message scores into a daily/entity-level sentiment signal before Phase 3.
+  FinBERT done (`sentiment_finbert.py`, 14% accuracy, zero-shot) → daily/entity-level
+  aggregation done (`sentiment_daily.py`, `daily_sentiment` table, volume floor applied).
 - **Phase 3**: signal validation — IC/rank-IC across t+1 and t+5, factor neutralization,
   explicit treatment of multiple-testing risk
 - **Phase 4**: ML model combining sentiment + traditional factors, walk-forward CV only
