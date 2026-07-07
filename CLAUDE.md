@@ -22,10 +22,11 @@ limitations) matters more than model performance or code sophistication.
 ## Current Status
 
 Phase 0 (scoping), Phase 1 (data ingestion), and Phase 2 (NLP sentiment extraction)
-are done: all three sentiment methods (LM dictionary, TF-IDF/logreg, FinBERT) plus
-daily/entity-level aggregation (see Architecture below) are implemented and run
-against the full ingested dataset. Phase 3 (signal validation) is next. See
-README.md's phase checklist for the authoritative up-to-date status.
+are done: all four sentiment methods (LM dictionary, TF-IDF/logreg, FinBERT,
+StockTwits-finetuned RoBERTa) plus daily/entity-level aggregation (see Architecture
+below) are implemented and run against the full ingested dataset. Phase 3 (signal
+validation) is next. See README.md's phase checklist for the authoritative up-to-date
+status.
 
 ## Fixed Decisions (do not change without discussion)
 
@@ -53,6 +54,7 @@ ingestion/
 ├── sentiment_lm.py       # Phase 2 baseline: Loughran-McDonald dictionary scoring
 ├── sentiment_tfidf.py    # Phase 2: TF-IDF + logistic regression, trained on StockTwits' own label
 ├── sentiment_finbert.py  # Phase 2: FinBERT (ProsusAI/finbert), zero-shot
+├── sentiment_stocktwits_roberta.py # Phase 2: RoBERTa fine-tuned on StockTwits text, zero-shot on our data
 ├── sentiment_daily.py    # Phase 2: aggregates sentiment_scores into daily/entity signal
 ├── run_all.py            # runs ingestion sources against the DB
 ├── requirements.txt
@@ -86,8 +88,9 @@ phase0_proposal.md        # full thesis/scoping proposal (Phase 0 deliverable)
   doesn't populate those fields for non-equities, this is not a bug.
 - `sentiment_scores` — one row per (method, message), `PRIMARY KEY (method, source,
   message_id)`. `method` discriminates which Phase 2 technique produced the row
-  (`'lm_dict'` so far; `'tfidf_logreg'`/`'finbert'` will follow) — same discriminator
-  pattern as `messages.source`, so all three methods coexist without a schema change.
+  (`'lm_dict'`, `'tfidf_logreg'`, `'finbert'`, `'stocktwits_roberta'`) — same
+  discriminator pattern as `messages.source`, so all four methods coexist without a
+  schema change.
   `score` is normalized to roughly [-1, 1] for cross-method comparability; `label` is
   bucketed to `bullish`/`bearish`/`neutral` so it's directly comparable to
   `messages.sentiment_label`; method-specific detail (LM's raw pos/neg counts and
@@ -100,7 +103,7 @@ phase0_proposal.md        # full thesis/scoping proposal (Phase 0 deliverable)
   `deduplicate.py`). Stores `mean_score`, `message_count`, and the bullish/bearish/
   neutral mix; `mean_score` is `NULL` when `message_count < config.MIN_DAILY_MESSAGES`
   (the Phase 0 volume floor) — treated as missing signal, not a noisy one —
-  `above_volume_floor` records why. The three methods are aggregated independently
+  `above_volume_floor` records why. The four methods are aggregated independently
   (not blended into one score) so Phase 3 can evaluate each method's IC separately.
   Upserts via `ON CONFLICT ... DO UPDATE` for the same re-scoring-overwrites reason as
   `sentiment_scores`.
@@ -176,12 +179,31 @@ evaluation against StockTwits' own label uses all 616 labeled messages directly,
 nothing here was fit on them. Result: 14.1% accuracy, again mostly defaulting to neutral
 (493/616) — FinBERT's formal financial-news training doesn't transfer well to short
 informal social posts either, a different root cause than LM's but a similar symptom.
-**Cross-method takeaway**: `sentiment_tfidf.py` (78% accuracy, trained on our own
-labeled data) clearly outperforms both zero-shot/dictionary approaches (LM 16%, FinBERT
-14%) on StockTwits' own label — an honest finding that a small in-domain classifier beat
-general-purpose finance-text tools here, worth carrying into Phase 3 rather than
-papering over. Uses CPU-only PyTorch (no GPU available/needed for this dataset size);
-`torch`/`transformers` added to `requirements.txt`.
+Kept in the codebase and in `sentiment_scores` even after `sentiment_stocktwits_roberta.py`
+(below) beat it decisively — the weak result is itself the useful finding (general
+finance-text pretraining doesn't transfer to social media), not something to delete
+once a better method exists. Uses CPU-only PyTorch (no GPU available/needed for this
+dataset size); `torch`/`transformers` added to `requirements.txt`.
+
+**StockTwits-finetuned RoBERTa sentiment scoring** (`sentiment_stocktwits_roberta.py`):
+Phase 2's fourth method, added specifically to fix FinBERT's domain mismatch — uses
+`zhayunduo/roberta-base-stocktwits-finetuned`, a RoBERTa-base model fine-tuned by its
+author directly on StockTwits posts (informal social-media finance text) rather than
+formal news/analyst text. Like FinBERT, run **zero-shot with respect to our data** (not
+fine-tuned on this project's messages), so evaluation again uses all 616 StockTwits-labeled
+messages directly with no train/test split. The model's own label set (confirmed via
+`AutoConfig.id2label`) is binary — `Negative`/`Positive`, no neutral class — so like
+`sentiment_tfidf.py` it forces every message into bullish/bearish. Result: **87.5%
+accuracy**, clearly the best of all four methods — confirms that in-domain (StockTwits)
+pretraining matters far more than general finance-text pretraining for this short,
+informal data, more so even than `sentiment_tfidf.py`'s in-domain-but-small-labeled-set
+approach (78%).
+**Cross-method takeaway (final, all four methods)**: StockTwits-RoBERTa (87.5%) >
+TF-IDF/logreg (78%, trained on our own labels) >> LM dictionary (16%) > FinBERT (14%)
+on StockTwits' own label. The consistent pattern: StockTwits-domain text — whether via
+someone else's fine-tuning or our own small labeled set — beats general-purpose
+finance-text tools applied out-of-the-box. Added alongside FinBERT rather than
+replacing it (explicit user decision) so the honest negative result stays on record.
 
 **Daily/entity-level sentiment aggregation** (`sentiment_daily.py`): Phase 2's final
 step, turning the per-message `sentiment_scores` rows (one per method) into a daily
@@ -257,8 +279,10 @@ python ingestion/run_all.py
   `deduplicate.py`, storage in Postgres done from the start.
 - **Phase 2 (complete)**: NLP sentiment extraction — Loughran-McDonald dictionary
   baseline done (`sentiment_lm.py`, 16% accuracy vs. StockTwits' label) → TF-IDF/logistic
-  regression done (`sentiment_tfidf.py`, 78% held-out accuracy — clear winner) →
-  FinBERT done (`sentiment_finbert.py`, 14% accuracy, zero-shot) → daily/entity-level
+  regression done (`sentiment_tfidf.py`, 78% held-out accuracy) → FinBERT done
+  (`sentiment_finbert.py`, 14% accuracy, zero-shot) → StockTwits-finetuned RoBERTa done
+  (`sentiment_stocktwits_roberta.py`, 87.5% accuracy, zero-shot on our data — clear
+  winner, added alongside FinBERT rather than replacing it) → daily/entity-level
   aggregation done (`sentiment_daily.py`, `daily_sentiment` table, volume floor applied).
 - **Phase 3**: signal validation — IC/rank-IC across t+1 and t+5, factor neutralization,
   explicit treatment of multiple-testing risk

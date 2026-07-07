@@ -117,6 +117,15 @@ methodology after seeing results.
       defaulting to neutral (493/616) — FinBERT is tuned on formal analyst/news text,
       so short informal social posts trip it up in a similar way to the LM dictionary,
       just for a different underlying reason.
+- [x] Transformer (in-domain): `zhayunduo/roberta-base-stocktwits-finetuned` — added
+      alongside FinBERT (not replacing it) via `sentiment_stocktwits_roberta.py`, since
+      this RoBERTa model is fine-tuned directly on StockTwits posts rather than formal
+      financial news. Against StockTwits' own label (n=616, zero-shot on *our* data, no
+      train/test split needed since nothing was fit on this project's messages): 87.5%
+      accuracy — clearly the best of all four methods, confirming that in-domain
+      (StockTwits-trained) pretraining matters far more than general finance-text
+      pretraining for this informal, short-form data. Binary like TF-IDF/LogReg (the
+      model's own label set is Negative/Positive, no neutral class).
 - [x] Aggregate document-level scores into daily/entity-level sentiment signal —
       `sentiment_daily.py` groups each method's `sentiment_scores` rows by
       (ticker, aligned trading day) into the new `daily_sentiment` table:
@@ -128,12 +137,13 @@ methodology after seeing results.
       day is missing. Current ingested data spans only 26 ticker-days (a
       narrow recent window, not a full backtest history yet), none below
       the floor of 3.
-- [x] Compare model performance (F1, latency) against baseline — see the three methods'
-      results above: TF-IDF/logreg (78% accuracy, trained on our labels) clearly beats
-      both zero-shot dictionary/transformer approaches (LM 16%, FinBERT 14%) on
-      StockTwits' own label, which mostly reflects that a model trained on this specific
-      informal-text domain outperforms general-purpose finance-text tools applied
-      out-of-the-box — an honest, if unglamorous, finding worth carrying into Phase 3.
+- [x] Compare model performance (F1, latency) against baseline — see the four methods'
+      results above: StockTwits-RoBERTa (87.5%) > TF-IDF/logreg (78%, trained on our
+      labels) >> LM dictionary (16%) > FinBERT (14%) on StockTwits' own label. The
+      pattern is consistent across all four: in-domain data (StockTwits text, whether
+      via our own labels or someone else's fine-tuning) beats general-purpose
+      finance-text tools applied out-of-the-box — an honest, if unglamorous, finding
+      worth carrying into Phase 3.
 
 ### Phase 3 — Signal Construction & Statistical Validation (~2 weeks)
 - [ ] Construct forward return labels (raw and market/sector-neutral excess returns)

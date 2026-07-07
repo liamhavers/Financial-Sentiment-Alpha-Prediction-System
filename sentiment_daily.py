@@ -3,11 +3,12 @@ Phase 2, final step: aggregate per-message sentiment_scores into a
 daily/entity-level signal — one row per (ticker, trading_day, method) in the
 new `daily_sentiment` table (see db.py).
 
-Each of the three Phase 2 methods (lm_dict, tfidf_logreg, finbert) scored the
-same deduplicated message set independently, so aggregation runs per method
-rather than combining them into one blended score — keeping them separate
-lets Phase 3 evaluate each method's IC independently rather than baking a
-premature "best method" choice into the signal.
+Each of the four Phase 2 methods (lm_dict, tfidf_logreg, finbert,
+stocktwits_roberta) scored the same deduplicated message set independently,
+so aggregation runs per method rather than combining them into one blended
+score — keeping them separate lets Phase 3 evaluate each method's IC
+independently rather than baking a premature "best method" choice into the
+signal.
 
 Messages are bucketed by their aligned trading day (timestamp_alignment.py),
 not calendar day, so the no-look-ahead guarantee established at ingestion
@@ -25,7 +26,7 @@ import config
 import db
 import timestamp_alignment as ta
 
-METHODS = ["lm_dict", "tfidf_logreg", "finbert"]
+METHODS = ["lm_dict", "tfidf_logreg", "finbert", "stocktwits_roberta"]
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
