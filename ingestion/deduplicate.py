@@ -20,7 +20,7 @@ directly, so repost inflation doesn't bias the score.
 
 from typing import Iterable
 
-import timestamp_alignment as ta
+from ingestion import timestamp_alignment as ta
 
 
 def deduplicate_messages(rows: Iterable[tuple], trading_days: list) -> list[tuple]:

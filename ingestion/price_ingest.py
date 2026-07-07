@@ -20,8 +20,7 @@ from datetime import datetime, timezone
 
 import yfinance as yf
 
-import config
-import db
+from ingestion import config, db
 
 SECONDS_BETWEEN_TICKERS = 1
 

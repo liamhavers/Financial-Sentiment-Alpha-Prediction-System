@@ -29,10 +29,7 @@ import psycopg2.extras
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-import config
-import db
-import deduplicate
-import timestamp_alignment as ta
+from ingestion import config, db, deduplicate, timestamp_alignment as ta
 
 METHOD = "stocktwits_roberta"
 MODEL_NAME = "zhayunduo/roberta-base-stocktwits-finetuned"

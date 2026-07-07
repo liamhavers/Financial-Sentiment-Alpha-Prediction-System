@@ -21,7 +21,7 @@ from typing import Iterable
 import psycopg2
 import psycopg2.extras
 
-import config
+from ingestion import config
 
 log = logging.getLogger(__name__)
 

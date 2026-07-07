@@ -18,8 +18,7 @@ from datetime import date, datetime
 from datetime import time as dtime
 from zoneinfo import ZoneInfo
 
-import config
-import db
+from ingestion import config, db
 
 MARKET_TZ = ZoneInfo("America/New_York")
 MARKET_CLOSE = dtime(16, 0)  # 4:00 PM ET

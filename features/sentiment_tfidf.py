@@ -31,11 +31,8 @@ from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 
-import config
-import db
-import deduplicate
-import sentiment_lm
-import timestamp_alignment as ta
+from ingestion import config, db, deduplicate, timestamp_alignment as ta
+from features import sentiment_lm
 
 METHOD = "tfidf_logreg"
 TEST_SIZE = 0.2

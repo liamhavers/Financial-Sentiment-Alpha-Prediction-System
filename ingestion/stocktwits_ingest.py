@@ -20,8 +20,7 @@ from datetime import datetime, timezone
 import requests
 import psycopg2.extras
 
-import config
-import db
+from ingestion import config, db
 
 BASE_URL = "https://api.stocktwits.com/api/2/streams/symbol/{symbol}.json"
 SECONDS_BETWEEN_REQUESTS = 20

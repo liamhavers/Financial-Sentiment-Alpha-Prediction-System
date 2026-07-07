@@ -44,24 +44,39 @@ status.
 ## Architecture
 
 ```
-ingestion/
-├── config.py            # tickers, benchmark ticker, env-driven DB settings
-├── db.py                 # Postgres connection + shared schema
-├── stocktwits_ingest.py  # pulls StockTwits streams/symbol endpoint
-├── price_ingest.py       # pulls daily OHLCV + fundamentals via yfinance
-├── timestamp_alignment.py # maps a message timestamp to its aligned trading day
-├── deduplicate.py        # collapses same-account/body/day reposts before scoring
-├── sentiment_lm.py       # Phase 2 baseline: Loughran-McDonald dictionary scoring
-├── sentiment_tfidf.py    # Phase 2: TF-IDF + logistic regression, trained on StockTwits' own label
-├── sentiment_finbert.py  # Phase 2: FinBERT (ProsusAI/finbert), zero-shot
-├── sentiment_stocktwits_roberta.py # Phase 2: RoBERTa fine-tuned on StockTwits text, zero-shot on our data
-├── sentiment_daily.py    # Phase 2: aggregates sentiment_scores into daily/entity signal
-├── run_all.py            # runs ingestion sources against the DB
+.
+├── ingestion/                # Phase 1: data pipeline (a Python package — has __init__.py)
+│   ├── config.py             # tickers, benchmark ticker, env-driven DB settings
+│   ├── db.py                 # Postgres connection + shared schema
+│   ├── stocktwits_ingest.py  # pulls StockTwits streams/symbol endpoint
+│   ├── price_ingest.py       # pulls daily OHLCV + fundamentals via yfinance
+│   ├── timestamp_alignment.py # maps a message timestamp to its aligned trading day
+│   ├── deduplicate.py        # collapses same-account/body/day reposts before scoring
+│   └── run_all.py            # runs ingestion sources against the DB
+├── features/                 # Phase 2: NLP sentiment extraction (a Python package)
+│   ├── sentiment_lm.py       # baseline: Loughran-McDonald dictionary scoring
+│   ├── sentiment_tfidf.py    # TF-IDF + logistic regression, trained on StockTwits' own label
+│   ├── sentiment_finbert.py  # FinBERT (ProsusAI/finbert), zero-shot
+│   ├── sentiment_stocktwits_roberta.py # RoBERTa fine-tuned on StockTwits text, zero-shot on our data
+│   └── sentiment_daily.py    # aggregates sentiment_scores into daily/entity signal
+├── models/                   # Phase 4: training scripts + saved model artifacts (not started)
+├── backtest/                 # Phase 3/5: signal validation, portfolio simulation (not started)
+├── notebooks/                # exploratory analysis only — no pipeline logic (not started)
 ├── requirements.txt
-├── .env.example          # copy to .env and fill in real values (never commit .env)
-README.md                 # project plan, phase checklist, tech stack
-phase0_proposal.md        # full thesis/scoping proposal (Phase 0 deliverable)
+├── .env.example               # copy to .env and fill in real values (never commit .env)
+├── docker-compose.yml         # local Postgres for development
+├── README.md                  # project plan, phase checklist, tech stack
+├── CLAUDE.md                  # this file
+└── phase0_proposal.md         # full thesis/scoping proposal (Phase 0 deliverable)
 ```
+
+Cross-package imports use absolute package paths (`from ingestion import config, db, ...` /
+`from features import sentiment_lm`), not relative imports or `sys.path` hacks — this
+means every script must be run as a module from the repo root (e.g. `python -m
+ingestion.run_all`, `python -m features.sentiment_daily`), not as a bare script path.
+`.env`/`.env.example` and `requirements.txt` live at the repo root rather than inside
+`ingestion/`, since `docker-compose.yml` (also at root) auto-loads `.env` from its own
+directory — nesting it inside `ingestion/` would silently break that.
 
 **Storage**: Postgres, five tables (see `db.py::init_db`):
 - `messages` — single table for text/sentiment data sources, distinguished by a
@@ -225,9 +240,9 @@ Phase 2 — Phase 3 (signal validation) is next.
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\Activate.ps1
-pip install -r ingestion/requirements.txt
-cp ingestion/.env.example ingestion/.env   # then fill in real values
-python ingestion/run_all.py
+pip install -r requirements.txt
+cp .env.example .env               # then fill in real values
+python -m ingestion.run_all
 ```
 
 ## Known Issues / Gotchas

@@ -22,9 +22,7 @@ import logging
 from collections import defaultdict
 from datetime import datetime, timezone
 
-import config
-import db
-import timestamp_alignment as ta
+from ingestion import config, db, timestamp_alignment as ta
 
 METHODS = ["lm_dict", "tfidf_logreg", "finbert", "stocktwits_roberta"]
 
