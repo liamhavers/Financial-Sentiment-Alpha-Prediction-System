@@ -144,12 +144,27 @@ methodology after seeing results.
       via our own labels or someone else's fine-tuning) beats general-purpose
       finance-text tools applied out-of-the-box — an honest, if unglamorous, finding
       worth carrying into Phase 3.
-- [ ] Fine-tune FinBERT and/or the StockTwits RoBERTa model on our own labeled
-      StockTwits data — both are currently run zero-shot (see above); this is a
-      genuine training task (not just inference) using PyTorch (`torch`/`transformers`
-      are already dependencies), and would test whether task-specific fine-tuning
-      on our small labeled set (616 messages) can beat zero-shot in-domain
-      pretraining, or whether that set is too small to matter.
+**Side experiment (tangent — not carried into Phase 3+)**: tested whether
+fine-tuning FinBERT and the StockTwits RoBERTa model on our own labeled
+StockTwits data (both are run zero-shot above) beats zero-shot in-domain
+pretraining. `sentiment_finbert_finetune.py` / `sentiment_stocktwits_roberta_finetune.py`
+(shared PyTorch training loop in `features/finetune_common.py`) fine-tune both
+models, reusing `sentiment_tfidf.py`'s exact stratified 80/20 split
+(train=612, test=153 on the labeled set as of this run) for direct
+comparability, with a class-weighted loss for the ~4:1 bullish:bearish
+imbalance. Held-out results: **FinBERT fine-tuned 56.2% accuracy** (up
+sharply from its 14% zero-shot baseline — fine-tuning clearly helps, but
+domain-general pretraining still leaves it far behind), **StockTwits-RoBERTa
+fine-tuned 86.3% accuracy** (statistically indistinguishable from its own
+87.5% zero-shot result — it was already fine-tuned on StockTwits-domain text
+by its author, so further fine-tuning on our much smaller labeled set changes
+little). Confirms this phase's core finding — in-domain *pretraining* is
+what matters here, not fine-tuning per se — but this was a one-off test of
+that idea, not an extension to the production pipeline: its two methods
+(`finbert_finetuned`, `stocktwits_roberta_finetuned`) are stored in
+`sentiment_scores` as a research record but are **deliberately excluded**
+from `sentiment_daily.py`'s aggregation, so they never reach `daily_sentiment`
+and Phase 3+ builds only on the four zero-shot methods above.
 
 ### Phase 3 — Signal Construction & Statistical Validation (~2 weeks)
 - [ ] Construct forward return labels (raw and market/sector-neutral excess returns)

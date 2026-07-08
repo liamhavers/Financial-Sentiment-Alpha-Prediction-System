@@ -22,10 +22,14 @@ limitations) matters more than model performance or code sophistication.
 ## Current Status
 
 Phase 0 (scoping), Phase 1 (data ingestion), and Phase 2 (NLP sentiment extraction)
-are done: all four sentiment methods (LM dictionary, TF-IDF/logreg, FinBERT,
+are done: all four zero-shot sentiment methods (LM dictionary, TF-IDF/logreg, FinBERT,
 StockTwits-finetuned RoBERTa) plus daily/entity-level aggregation (see Architecture
-below) are implemented and run against the full ingested dataset. Phase 3 (signal
-validation) is next. See README.md's phase checklist for the authoritative up-to-date
+below) are implemented and run against the full ingested dataset. A side experiment
+fine-tuned FinBERT and the StockTwits RoBERTa model on our own labeled data to test
+fine-tuning vs. zero-shot in-domain pretraining — see "Fine-tuned FinBERT and
+StockTwits-RoBERTa" below — but that tangent is deliberately excluded from
+`daily_sentiment`, so Phase 3 (signal validation, next) builds only on the four
+zero-shot methods. See README.md's phase checklist for the authoritative up-to-date
 status.
 
 ## Fixed Decisions (do not change without discussion)
@@ -58,6 +62,9 @@ status.
 │   ├── sentiment_tfidf.py    # TF-IDF + logistic regression, trained on StockTwits' own label
 │   ├── sentiment_finbert.py  # FinBERT (ProsusAI/finbert), zero-shot
 │   ├── sentiment_stocktwits_roberta.py # RoBERTa fine-tuned on StockTwits text, zero-shot on our data
+│   ├── finetune_common.py    # side-experiment: shared PyTorch fine-tuning loop (see CLAUDE.md)
+│   ├── sentiment_finbert_finetune.py   # side-experiment: fine-tunes FinBERT, excluded from daily_sentiment
+│   ├── sentiment_stocktwits_roberta_finetune.py # side-experiment: fine-tunes RoBERTa, excluded from daily_sentiment
 │   └── sentiment_daily.py    # aggregates sentiment_scores into daily/entity signal
 ├── models/                   # Phase 4: training scripts + saved model artifacts (not started)
 ├── backtest/                 # Phase 3/5: signal validation, portfolio simulation (not started)
@@ -102,10 +109,13 @@ directory — nesting it inside `ingestion/` would silently break that.
   Expect `NULL` sector/industry/market_cap for ETFs like QQQ — yfinance's `.info`
   doesn't populate those fields for non-equities, this is not a bug.
 - `sentiment_scores` — one row per (method, message), `PRIMARY KEY (method, source,
-  message_id)`. `method` discriminates which Phase 2 technique produced the row
-  (`'lm_dict'`, `'tfidf_logreg'`, `'finbert'`, `'stocktwits_roberta'`) — same
-  discriminator pattern as `messages.source`, so all four methods coexist without a
-  schema change.
+  message_id)`. `method` discriminates which Phase 2 technique produced the row —
+  the four forward-going methods (`'lm_dict'`, `'tfidf_logreg'`, `'finbert'`,
+  `'stocktwits_roberta'`) plus two side-experiment methods (`'finbert_finetuned'`,
+  `'stocktwits_roberta_finetuned'`, see "Fine-tuned FinBERT and StockTwits-RoBERTa"
+  below) kept here as a research record but deliberately excluded from
+  `daily_sentiment` — same discriminator pattern as `messages.source`, so all six
+  coexist without a schema change.
   `score` is normalized to roughly [-1, 1] for cross-method comparability; `label` is
   bucketed to `bullish`/`bearish`/`neutral` so it's directly comparable to
   `messages.sentiment_label`; method-specific detail (LM's raw pos/neg counts and
@@ -118,8 +128,10 @@ directory — nesting it inside `ingestion/` would silently break that.
   `deduplicate.py`). Stores `mean_score`, `message_count`, and the bullish/bearish/
   neutral mix; `mean_score` is `NULL` when `message_count < config.MIN_DAILY_MESSAGES`
   (the Phase 0 volume floor) — treated as missing signal, not a noisy one —
-  `above_volume_floor` records why. The four methods are aggregated independently
-  (not blended into one score) so Phase 3 can evaluate each method's IC separately.
+  `above_volume_floor` records why. Only the four forward-going methods are
+  aggregated here (not blended into one score, so Phase 3 can evaluate each
+  method's IC separately) — the two fine-tuned side-experiment methods are
+  intentionally excluded, see "Fine-tuned FinBERT and StockTwits-RoBERTa" below.
   Upserts via `ON CONFLICT ... DO UPDATE` for the same re-scoring-overwrites reason as
   `sentiment_scores`.
 
@@ -213,14 +225,62 @@ accuracy**, clearly the best of all four methods — confirms that in-domain (St
 pretraining matters far more than general finance-text pretraining for this short,
 informal data, more so even than `sentiment_tfidf.py`'s in-domain-but-small-labeled-set
 approach (78%).
-**Cross-method takeaway (final, all four methods)**: StockTwits-RoBERTa (87.5%) >
+**Cross-method takeaway (four zero-shot methods)**: StockTwits-RoBERTa (87.5%) >
 TF-IDF/logreg (78%, trained on our own labels) >> LM dictionary (16%) > FinBERT (14%)
 on StockTwits' own label. The consistent pattern: StockTwits-domain text — whether via
 someone else's fine-tuning or our own small labeled set — beats general-purpose
 finance-text tools applied out-of-the-box. Added alongside FinBERT rather than
 replacing it (explicit user decision) so the honest negative result stays on record.
 
-**Daily/entity-level sentiment aggregation** (`sentiment_daily.py`): Phase 2's final
+**Fine-tuned FinBERT and StockTwits-RoBERTa** (`sentiment_finbert_finetune.py`,
+`sentiment_stocktwits_roberta_finetune.py`, shared training loop in
+`finetune_common.py`): a **side experiment, not part of the forward-going Phase 2
+pipeline** — see the note at the end of this section for why it's excluded from
+`daily_sentiment`/Phase 3. Both `sentiment_finbert.py` and
+`sentiment_stocktwits_roberta.py` above are run zero-shot; these two scripts instead
+fine-tune the same base checkpoints on our own labeled StockTwits data via a plain
+PyTorch training loop (no HuggingFace `Trainer`/`accelerate` — unnecessary for a
+few hundred examples on CPU). Both reuse `sentiment_tfidf.py`'s exact
+`load_all_deduplicated`/`labeled_examples` loading and stratified 80/20
+`train_test_split` (same `TEST_SIZE`/`RANDOM_STATE`) so held-out accuracy is
+comparable to TF-IDF/LogReg and to each model's own zero-shot result on identical
+data, not just an identical metric. A class-weighted `CrossEntropyLoss` (inverse
+label frequency, same "balanced" idea as `sentiment_tfidf.py`'s
+`class_weight="balanced"`) compensates for the ~4:1 bullish:bearish imbalance.
+Following `sentiment_tfidf.py`'s pattern, each model is fine-tuned once for the
+held-out evaluation, then **refit from the pretrained checkpoint** (not
+continued-from-the-eval-run) on the full labeled set for the model that actually
+scores every message — the held-out split exists only to produce an honest metric,
+not to withhold data from the production scorer.
+FinBERT's pretrained head is kept 3-class (positive/negative/neutral) rather than
+resized to 2 classes: our labels are only ever bullish/bearish, so training targets
+map onto FinBERT's existing positive/negative indices and the neutral index is
+never a direct target (though softmax normalization still shifts it during
+training) — this keeps its output label space identical to the zero-shot method's,
+so `mean_score`/`label` stay comparable in `sentiment_scores`. The RoBERTa model
+needs no such trick — its pretrained head is already the binary Negative/Positive
+we need.
+Results (train=612, test=153 as of this run — the labeled set has grown past the
+616 messages used in the zero-shot evaluations above, since ingestion has kept
+running since then): **FinBERT fine-tuned 56.2% accuracy** — up sharply from its
+14% zero-shot result, so fine-tuning clearly helps close the domain gap, but formal
+financial-news pretraining still leaves it well behind. **StockTwits-RoBERTa
+fine-tuned 86.3% accuracy** — statistically indistinguishable from its own 87.5%
+zero-shot result; it was already fine-tuned on StockTwits-domain text by its
+original author, so further fine-tuning on our much smaller labeled set moves the
+needle little. Reinforces the phase's core finding: **in-domain pretraining**, not
+fine-tuning per se, is what separates these methods — fine-tuning narrows an
+out-of-domain model's gap but doesn't let it catch up to one that was in-domain
+from the start.
+**Scope note**: this was a one-off test of fine-tuning as a technique, not an
+extension to the production method lineup — `finbert_finetuned` and
+`stocktwits_roberta_finetuned` are stored in `sentiment_scores` as a research
+record (same "keep the honest result" precedent as FinBERT's zero-shot score
+above) but are deliberately left out of `sentiment_daily.py`'s `METHODS` list, so
+they never reach `daily_sentiment` and Phase 3+ builds only on the four zero-shot
+methods.
+
+**Daily/entity-level sentiment aggregation** (`sentiment_daily.py`): Phase 2's last
 step, turning the per-message `sentiment_scores` rows (one per method) into a daily
 signal per `(ticker, trading_day, method)` in `daily_sentiment`. Groups by the
 *aligned* trading day from `timestamp_alignment.py`, so the look-ahead guarantee
@@ -228,11 +288,10 @@ established at ingestion/dedup time carries through unchanged. Applies the Phase
 volume floor (`config.MIN_DAILY_MESSAGES = 3`): below that count, `mean_score` is
 stored `NULL` rather than an average over too few noisy posts, while `message_count`/
 `above_volume_floor` are still recorded so it's visible *why* a day is missing rather
-than silently absent. Verified against real data: current ingestion covers only 26
-distinct (ticker, trading_day) combinations (a narrow recent window, not yet a full
-backtest-length history — expected at this stage, not a bug), with message counts per
-day ranging 6–147, so none currently fall below the floor; the floor will start
-binding once ingestion has run long enough to accumulate sparser days. This completes
+than silently absent. Verified against real data: the four forward-going methods
+cover 26 distinct (ticker, trading_day) combinations, with message counts per day
+ranging 6–147, so none currently fall below the floor; it will start binding once
+ingestion has run long enough to accumulate sparser days. This completes
 Phase 2 — Phase 3 (signal validation) is next.
 
 ## Setup Commands
@@ -299,6 +358,11 @@ python -m ingestion.run_all
   (`sentiment_stocktwits_roberta.py`, 87.5% accuracy, zero-shot on our data — clear
   winner, added alongside FinBERT rather than replacing it) → daily/entity-level
   aggregation done (`sentiment_daily.py`, `daily_sentiment` table, volume floor applied).
+  Side experiment (not part of the forward pipeline): fine-tuned versions of both
+  transformers on our own labeled data (`sentiment_finbert_finetune.py`, 56.2%
+  accuracy; `sentiment_stocktwits_roberta_finetune.py`, 86.3% accuracy — confirms
+  in-domain pretraining matters more than fine-tuning per se), deliberately excluded
+  from `daily_sentiment` so Phase 3+ builds only on the four zero-shot methods.
 - **Phase 3**: signal validation — IC/rank-IC across t+1 and t+5, factor neutralization,
   explicit treatment of multiple-testing risk
 - **Phase 4**: ML model combining sentiment + traditional factors, walk-forward CV only

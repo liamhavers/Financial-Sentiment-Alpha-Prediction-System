@@ -10,6 +10,12 @@ score — keeping them separate lets Phase 3 evaluate each method's IC
 independently rather than baking a premature "best method" choice into the
 signal.
 
+Deliberately excludes finbert_finetuned/stocktwits_roberta_finetuned: fine-tuning
+was a Phase 2 side experiment (see CLAUDE.md) to test whether task-specific
+fine-tuning beats zero-shot in-domain pretraining, not an extension to the
+production pipeline. Its sentiment_scores rows are kept as a research record,
+but intentionally never reach daily_sentiment/Phase 3.
+
 Messages are bucketed by their aligned trading day (timestamp_alignment.py),
 not calendar day, so the no-look-ahead guarantee established at ingestion
 carries through into the daily signal. Below config.MIN_DAILY_MESSAGES
