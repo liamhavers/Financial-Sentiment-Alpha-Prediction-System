@@ -144,6 +144,12 @@ methodology after seeing results.
       via our own labels or someone else's fine-tuning) beats general-purpose
       finance-text tools applied out-of-the-box — an honest, if unglamorous, finding
       worth carrying into Phase 3.
+- [ ] Fine-tune FinBERT and/or the StockTwits RoBERTa model on our own labeled
+      StockTwits data — both are currently run zero-shot (see above); this is a
+      genuine training task (not just inference) using PyTorch (`torch`/`transformers`
+      are already dependencies), and would test whether task-specific fine-tuning
+      on our small labeled set (616 messages) can beat zero-shot in-domain
+      pretraining, or whether that set is too small to matter.
 
 ### Phase 3 — Signal Construction & Statistical Validation (~2 weeks)
 - [ ] Construct forward return labels (raw and market/sector-neutral excess returns)
@@ -156,7 +162,10 @@ methodology after seeing results.
 - [ ] Combine sentiment features with traditional factors (momentum, volume, volatility, fundamentals)
 - [ ] Baseline: Ridge/Lasso/ElasticNet
 - [ ] Extend: LightGBM/XGBoost
-- [ ] Optional: sequence models (LSTM/Transformer) if using sentiment time series
+- [ ] Optional: sequence models (LSTM/Transformer) if using sentiment time series —
+      modeling the sentiment→return relationship over time (rather than as
+      cross-sectional features) is a genuine training task, unimplemented so far;
+      a natural fit for PyTorch, same framework as the Phase 2 fine-tuning above
 - [ ] Use walk-forward / expanding-window CV — never random K-fold
 
 ### Phase 5 — Backtesting & Portfolio Simulation (~1-2 weeks)
@@ -175,6 +184,9 @@ methodology after seeing results.
 
 - **Language**: Python
 - **Data/ML**: pandas, numpy, scikit-learn, LightGBM
+- **Deep Learning**: PyTorch (already used for zero-shot FinBERT/RoBERTa inference;
+  Phase 2/4 fine-tuning and sequence-model work will build on it rather than adding
+  TensorFlow as a second framework)
 - **NLP**: HuggingFace `transformers` (FinBERT), NLTK/spaCy
 - **Statistics**: statsmodels
 - **Backtesting**: vectorbt / bt / custom
